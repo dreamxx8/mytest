@@ -1,0 +1,169 @@
+
+
+import 'package:coinw_flutter/bean/follow/follow_my_profit_entity.dart';
+import 'package:flutter/material.dart';
+import 'package:module_core/core/constant/url_const.dart';
+import 'package:module_core/core/constant/value_const.dart';
+import 'package:module_core/core/net/http_client.dart';
+import 'package:module_core/core/utils/event_bus_utils.dart';
+import 'package:module_core/core/utils/scroll_view.dart';
+import 'package:module_international/generated/l10n.dart';
+import 'package:module_core/widget/custom_refresher_widget.dart';
+import 'package:module_core/widget/custom_toast.dart';
+import 'package:module_core/widget/empty_widget.dart';
+import 'package:module_follow/home/widget/item/user_follower_item.dart';
+import 'package:module_follow/home/widget/item/user_like_item.dart';
+import 'package:pull_to_refresh/pull_to_refresh.dart';
+
+///关注者
+class UserFollowerLikeListPage extends StatefulWidget {
+  static const String routeName = "FollowerLikeListPage";
+
+  static void start(BuildContext context) {
+    Navigator.pushNamed(context, routeName);
+  }
+
+  const UserFollowerLikeListPage({Key? key}) : super(key: key);
+
+  @override
+  State<UserFollowerLikeListPage> createState() => _UserFollowerLikeListPageState();
+}
+
+class _UserFollowerLikeListPageState extends State<UserFollowerLikeListPage>
+    with _UserFollowerLikeListPageBloc, AutomaticKeepAliveClientMixin {
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      _isInitialized = true;
+      _init();
+    }
+    return SmartRefresher(
+      controller: _refreshController,
+      enablePullDown: true,
+      enablePullUp: _isLoadMore,
+      footer: customRefresherFooter(context),
+      header: customRefresherHeader(context),
+      onRefresh: () {
+        _refresh();
+      },
+      onLoading: () {
+        _onLoad();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 15),
+        child: ListView.builder(
+          physics: DefScrollPhysics.def,
+          itemBuilder: _item,
+          itemCount: _dataList.isEmpty ? 1 : _dataList.length,
+        ),
+      ),
+    );
+  }
+
+  Widget _item(context, index){
+    if(_dataList.isEmpty){
+      return Container(
+          height: 250,
+          child: EmptyWidget());
+    }
+    FollowMyProfitEntity followerEntity = _dataList[index];
+    return UserLikeItem(followerEntity, cancelCallBack: (leader){
+      _cancelLeader(leader);
+    },);
+  }
+
+  @override
+  bool get wantKeepAlive => true;
+}
+
+mixin _UserFollowerLikeListPageBloc on State<UserFollowerLikeListPage> {
+  bool _isInitialized = false;
+  List<FollowMyProfitEntity> _dataList = [];
+  int _page = 1;
+  bool _isLoadMore = true;
+
+  final RefreshController _refreshController = RefreshController(initialRefresh: false);
+
+  _init() {
+    _refresh();
+    ///跟单设置后回调
+    eventBus.on<EventFollowSettingCallback>().listen((event) {
+      _refresh();
+    });
+  }
+
+  _refresh() {
+    _dataList.clear();
+    _page = 1;
+    _getFocusData();
+  }
+
+  _onLoad() {
+    _page++;
+    _getFocusData();
+  }
+
+  _getFocusData(){
+    Map<String, dynamic> params = {};
+    params[RequestConst.PAGE_SIZE] = 10;
+    params["page"] = _page;
+    httpClientContract.post<List<FollowMyProfitEntity>>(
+        url: UrlConst.API_FOLLOW_MY_FOCUS_LEADER_LIST,
+        parameters: params,
+        showErrorMessage: true,
+        parseKey: CommonConst.ROWS_PAGE,
+        onSuccess: (resp) {
+          if (resp != null) {
+            if(_page == 1){
+              _dataList = resp;
+            }else{
+              _dataList.addAll(resp);
+            }
+            if(resp.length < 10){
+              _isLoadMore = false;
+            }else{
+              _isLoadMore = true;
+            }
+            setState(() {});
+          }
+          _endRefresh();
+        },
+        onError:  (e){
+          _endRefresh();
+        }
+    );
+  }
+
+  _cancelLeader(FollowMyProfitEntity leader) {
+    Map<String, dynamic> params = {};
+    params["leaderId"] = leader.leaderId;
+    params["type"] = 0;
+    httpClientContract.post<List<FollowMyProfitEntity>>(
+        url: UrlConst.API_FOLLOW_LEADER_FOCUS_MANAGER,
+        parameters: params,
+        showLoading: true,
+        showErrorMessage: true,
+        onSuccess: (resp) {
+          ///已取消关注
+          CustomToast.show(S.of(context).follow_user_cancel_focus);
+          _refresh();
+        },
+        onError: (e) {});
+  }
+
+  _endRefresh() {
+    _refreshController.loadComplete();
+    _refreshController.refreshCompleted();
+  }
+}
